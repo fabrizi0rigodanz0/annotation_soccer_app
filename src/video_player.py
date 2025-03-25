@@ -30,6 +30,7 @@ class VideoPlayer(QThread):
         self.cap = None
         self.fps = 0
         self.total_frames = 0
+        self.total_duration_ms = 0  # Adding this to fix slider issue
         self.current_frame_index = 0
         self.frame_duration = 0  # Duration of a single frame in milliseconds
         
@@ -64,6 +65,9 @@ class VideoPlayer(QThread):
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.frame_duration = 1000 / self.fps  # Duration in milliseconds
         
+        # Calculate total duration in milliseconds
+        self.total_duration_ms = int((self.total_frames / self.fps) * 1000)
+        
         # Reset playback state
         self.current_frame_index = 0
         self.is_paused = True
@@ -73,8 +77,8 @@ class VideoPlayer(QThread):
         self.frame_buffer = []
         
         # Emit the duration signal
-        total_duration = int((self.total_frames / self.fps) * 1000)  # Duration in milliseconds
-        self.duration_changed.emit(total_duration)
+        self.total_duration_ms = int((self.total_frames / self.fps) * 1000)  # Duration in milliseconds
+        self.duration_changed.emit(self.total_duration_ms)
         
         # Release the mutex
         self.mutex.unlock()

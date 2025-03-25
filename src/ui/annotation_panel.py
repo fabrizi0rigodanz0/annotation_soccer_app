@@ -9,7 +9,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QGroupBox, QRadioButton, QButtonGroup
 )
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QEvent
+from PyQt5.QtGui import QKeyEvent
 
 from src.utils.time_utils import format_time_ms, format_game_time
 
@@ -32,6 +33,9 @@ class AnnotationPanel(QWidget):
         
         # Set up UI
         self.setup_ui()
+        
+        # Enable key press events
+        self.setFocusPolicy(Qt.StrongFocus)
     
     def setup_ui(self):
         """Set up the user interface"""
@@ -162,3 +166,18 @@ class AnnotationPanel(QWidget):
         # Reset to default values
         self.label_combo.setCurrentIndex(0)
         self.home_radio.setChecked(True)
+        
+        # Set focus to ensure keyboard events are captured
+        self.setFocus()
+        
+    def keyPressEvent(self, event):
+        """Handle key press events"""
+        if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+            # Save annotation when Enter is pressed
+            self.on_save()
+        elif event.key() == Qt.Key_Escape:
+            # Cancel when Escape is pressed
+            self.on_cancel()
+        else:
+            # Pass other key events to parent
+            super().keyPressEvent(event)

@@ -228,3 +228,42 @@ class AnnotationManager:
         except (ValueError, IndexError) as e:
             print(f"Error parsing game time: {e}")
             return 0
+    
+    def add_automatic_annotations(self, interval_seconds=3):
+        """
+        Automatically add 'NO HIGHLIGHT' annotations at regular intervals
+        
+        Args:
+            interval_seconds (int): Interval between annotations in seconds
+            
+        Returns:
+            int: Number of annotations added
+        """
+        if not self.video_path:
+            raise ValueError("No video loaded")
+        
+        # Get video duration using OpenCV
+        import cv2
+        cap = cv2.VideoCapture(self.video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration_seconds = total_frames / fps
+        cap.release()
+        
+        # Calculate how many annotations to add
+        count = 0
+        for second in range(0, int(duration_seconds), interval_seconds):
+            position_ms = second * 1000
+            
+            # Check if there's already an annotation at this position (within 500ms)
+            existing = self.get_annotations_at_position(position_ms, tolerance_ms=500)
+            if not existing:
+                # Add 'NO HIGHLIGHT' annotation
+                self.add_annotation(
+                    position_ms,
+                    "NO HIGHLIGHT",
+                    "home"  # Default to home team
+                )
+                count += 1
+        
+        return count

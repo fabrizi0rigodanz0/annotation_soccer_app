@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QAction, QFileDialog, QMessageBox, QSplitter,
     QStatusBar, QLabel, QPushButton, QToolBar
 )
-from PyQt5.QtCore import Qt, QSettings, QSize, QDir
+from PyQt5.QtCore import Qt, QSettings, QSize, QDir, QTimer
 from PyQt5.QtGui import QIcon, QKeySequence
 
 from src.video_player import VideoPlayer
@@ -56,6 +56,13 @@ class MainWindow(QMainWindow):
         
         # Initialize with empty state
         self.current_video_path = None
+        
+        # Setup auto-annotation timer
+        self.auto_annotation_timer = QTimer(self)
+        self.auto_annotation_timer.setInterval(3000)  # 3 seconds
+        self.auto_annotation_timer.timeout.connect(self.add_automatic_annotation)
+        self.auto_annotation_active = False
+        self.last_annotation_time = 0
     
     def setup_ui(self):
         """Set up the main UI components and layout"""
@@ -90,8 +97,10 @@ class MainWindow(QMainWindow):
         self.timeline_widget = TimelineWidget(self.video_player, self.annotation_manager)
         self.main_splitter.addWidget(self.timeline_widget)
         
-        # Set splitter proportions
-        self.main_splitter.setSizes([700, 200])  # 70% video, 30% timeline
+        # Set splitter proportions - reducing video size by 30%
+        # Original was 70% video, 30% timeline
+        # New proportions: 49% video (70% * 0.7), 51% timeline
+        self.main_splitter.setSizes([490, 510])  # 49% video, 51% timeline
         
         # Create annotation panel (hidden by default)
         self.annotation_panel = AnnotationPanel(self.annotation_manager)
@@ -150,6 +159,14 @@ class MainWindow(QMainWindow):
         self.add_annotation_button = QPushButton("Add Annotation (Space)")
         self.add_annotation_button.clicked.connect(self.toggle_annotation_panel)
         self.main_toolbar.addWidget(self.add_annotation_button)
+        
+        # Add auto-annotation toggle button
+        self.main_toolbar.addSeparator()
+        self.auto_annotate_toggle_button = QPushButton("Auto 'NO HIGHLIGHT': OFF")
+        self.auto_annotate_toggle_button.setCheckable(True)
+        self.auto_annotate_toggle_button.clicked.connect(self.toggle_auto_annotation)
+        self.auto_annotate_toggle_button.setEnabled(False)  # Disabled until video loaded
+        self.main_toolbar.addWidget(self.auto_annotate_toggle_button)
     
     def create_statusbar(self):
         """Create the status bar"""
@@ -169,10 +186,12 @@ class MainWindow(QMainWindow):
         # Video player signals
         self.video_player.frame_ready.connect(self.video_widget.update_frame)
         self.video_player.frame_ready.connect(lambda frame, pos: self.timeline_widget.update_position(pos))
+        self.video_player.frame_ready.connect(lambda frame, pos: self.on_frame_update(pos))
         self.video_player.duration_changed.connect(self.timeline_widget.set_duration)
         
         # Annotation panel signals
         self.annotation_panel.annotation_added.connect(self.timeline_widget.update_annotations)
+        self.annotation_panel.annotation_added.connect(self.on_annotation_saved)
         self.annotation_panel.annotation_canceled.connect(self.on_annotation_canceled)
         
         # Timeline widget signals
@@ -217,6 +236,14 @@ class MainWindow(QMainWindow):
                 # Enable UI elements
                 self.toggle_annotation_panel_action.setEnabled(True)
                 self.add_annotation_button.setEnabled(True)
+                self.auto_annotate_toggle_button.setEnabled(True)
+                
+                # Reset auto-annotation state
+                self.auto_annotation_active = False
+                self.auto_annotate_toggle_button.setText("Auto 'NO HIGHLIGHT': OFF")
+                self.auto_annotate_toggle_button.setChecked(False)
+                self.auto_annotation_timer.stop()
+                self.last_annotation_time = 0
                 
             except Exception as e:
                 QMessageBox.critical(self, "Error Opening Video", str(e))
@@ -253,13 +280,29 @@ class MainWindow(QMainWindow):
         """Handle annotation cancellation"""
         self.annotation_panel.setVisible(False)
         self.toggle_annotation_panel_action.setChecked(False)
+        
+    def on_annotation_saved(self, annotation):
+        """Handle saved annotation and auto-resume playback"""
+        # Start playback automatically after saving annotation
+        self.video_player.play()
+        self.controls_widget.update_play_pause_button(False)  # Not paused
+        
+        # Restart auto-annotation timer if active
+        if self.auto_annotation_active and not self.auto_annotation_timer.isActive():
+            self.auto_annotation_timer.start()
     
     def on_play_pause_toggled(self, paused):
         """Handle play/pause state changes"""
         if paused:
             self.video_player.pause()
+            # Stop auto-annotation timer when paused
+            if self.auto_annotation_active:
+                self.auto_annotation_timer.stop()
         else:
             self.video_player.play()
+            # Start auto-annotation timer when playing
+            if self.auto_annotation_active:
+                self.auto_annotation_timer.start()
     
     def show_about(self):
         """Show the about dialog"""
@@ -299,6 +342,49 @@ class MainWindow(QMainWindow):
         
         # Accept the event and close the window
         event.accept()
+    
+    def toggle_auto_annotation(self, checked):
+        """Toggle automatic 'NO HIGHLIGHT' annotation every 3 seconds"""
+        self.auto_annotation_active = checked
+        
+        if checked:
+            self.auto_annotate_toggle_button.setText("Auto 'NO HIGHLIGHT': ON")
+            # Start the timer if video is playing
+            if not self.video_player.is_paused:
+                self.auto_annotation_timer.start()
+            self.status_label.setText("Auto-annotation active: adding 'NO HIGHLIGHT' labels every 3 seconds")
+        else:
+            self.auto_annotate_toggle_button.setText("Auto 'NO HIGHLIGHT': OFF")
+            self.auto_annotation_timer.stop()
+            self.status_label.setText("Auto-annotation disabled")
+    
+    def on_frame_update(self, position_ms):
+        """Handle frame updates from the video player"""
+        # Store current position for auto-annotation
+        self.current_position_ms = position_ms
+        
+    def add_automatic_annotation(self):
+        """Add a 'NO HIGHLIGHT' annotation at the current position if needed"""
+        if not self.current_video_path or self.annotation_panel.isVisible():
+            return
+        
+        # Check if there's already an annotation at this position (within 500ms)
+        existing_annotations = self.annotation_manager.get_annotations_at_position(
+            self.current_position_ms, tolerance_ms=1500)
+        
+        if not existing_annotations:
+            # Add 'NO HIGHLIGHT' annotation
+            annotation = self.annotation_manager.add_annotation(
+                self.current_position_ms,
+                "NO HIGHLIGHT",
+                "home"  # Default to home team
+            )
+            
+            # Update the timeline
+            self.timeline_widget.update_annotations()
+            
+            # Briefly show status message
+            self.status_label.setText(f"Auto-added 'NO HIGHLIGHT' at position {self.current_position_ms}ms")
     
     def eventFilter(self, obj, event):
         """Custom event filter for key presses"""
