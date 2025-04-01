@@ -25,8 +25,8 @@ A comprehensive application for annotating soccer videos with custom labels, tim
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/soccer-video-annotator.git
-   cd soccer-video-annotator
+   git clone https://github.com/fabrizi0rigodanz0/annotation_soccer_app.git
+   cd annotation_soccer_app
    ```
 
 2. Install the required dependencies:
