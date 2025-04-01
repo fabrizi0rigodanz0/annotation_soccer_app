@@ -84,7 +84,7 @@ class ControlsWidget(QWidget):
         self.main_layout.addWidget(self.speed_label)
         
         self.speed_combo = QComboBox()
-        self.speed_combo.addItems(["0.25x", "0.5x", "1.0x", "1.5x", "2.0x"])
+        self.speed_combo.addItems(["0.25x", "0.5x", "1.0x", "1.5x", "2.0x","4.0x", "5.0x", "10.0x"])
         self.speed_combo.setCurrentIndex(2)  # Default to 1.0x
         self.speed_combo.currentIndexChanged.connect(self.on_speed_changed)
         self.main_layout.addWidget(self.speed_combo)

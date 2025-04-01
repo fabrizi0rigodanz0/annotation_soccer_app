@@ -251,7 +251,7 @@ class VideoPlayer(QThread):
     def set_playback_speed(self, speed):
         """Set the playback speed (1.0 = normal speed)"""
         self.mutex.lock()
-        self.playback_speed = max(0.25, min(speed, 4.0))  # Limit between 0.25x and 4x
+        self.playback_speed = max(0.25, min(speed, 10.0))  # Limit between 0.25x and 4x
         self.mutex.unlock()
     
     def get_current_position(self):
