@@ -21,7 +21,7 @@ class VideoWidget(QWidget):
         
         # Set up widget properties
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumSize(320, 240)
+        self.setMinimumSize(640, 360)
         self.setFocusPolicy(Qt.StrongFocus)
         
         # Store reference to video player

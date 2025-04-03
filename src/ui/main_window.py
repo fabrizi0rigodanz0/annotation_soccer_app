@@ -100,7 +100,7 @@ class MainWindow(QMainWindow):
         # Set splitter proportions - reducing video size by 30%
         # Original was 70% video, 30% timeline
         # New proportions: 49% video (70% * 0.7), 51% timeline
-        self.main_splitter.setSizes([490, 510])  # 49% video, 51% timeline
+        self.main_splitter.setSizes([700, 300])  # 49% video, 51% timeline
         
         # Create annotation panel (hidden by default)
         self.annotation_panel = AnnotationPanel(self.annotation_manager)
