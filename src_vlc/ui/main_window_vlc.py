@@ -102,11 +102,14 @@ class MainWindowVLC(QMainWindow):
 
     def connect_signals(self):
         self.video_player.duration_changed.connect(self.timeline_widget.set_duration)
+        self.video_player.position_changed.connect(self.timeline_widget.update_position)
+        self.video_player.position_changed.connect(self.controls_widget.update_position)
         self.controls_widget.play_pause_toggled.connect(self.on_play_pause_toggled)
         self.annotation_panel.annotation_added.connect(self.timeline_widget.update_annotations)
         self.annotation_panel.annotation_added.connect(lambda ann: self.video_player.play())
         self.annotation_panel.annotation_canceled.connect(self.on_annotation_canceled)
         self.timeline_widget.position_changed.connect(self.controls_widget.update_position)
+
 
     def open_video(self):
         last_dir = self.settings.value("last_directory", QDir.homePath())

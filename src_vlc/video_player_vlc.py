@@ -6,6 +6,7 @@ class VideoPlayerVLC(QThread):
     # Instead of sending raw frames, we’ll rely on VLC rendering directly.
     duration_changed = pyqtSignal(int)      # Emits total duration (ms)
     playback_finished = pyqtSignal()          # Emits when playback ends
+    position_changed = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,6 +38,7 @@ class VideoPlayerVLC(QThread):
         while not self._stop:
             pos = self.media_player.get_time()
             self.current_position_ms = pos
+            self.position_changed.emit(pos)
             # Sleep briefly; adjust sleep time for smoother updates
             time.sleep(0.03 / self.playback_speed)
             if pos >= self.total_duration_ms and self.total_duration_ms > 0:
