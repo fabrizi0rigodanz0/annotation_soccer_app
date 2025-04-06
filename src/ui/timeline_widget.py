@@ -181,7 +181,7 @@ class TimelineWidget(QWidget):
             self.video_player,
             "seek",
             Qt.QueuedConnection,
-         Q_ARG(int, position_ms)
+            Q_ARG(int, position_ms)
         )
         self.position_changed.emit(position_ms)
     

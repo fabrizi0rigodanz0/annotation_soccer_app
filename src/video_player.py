@@ -11,7 +11,7 @@ import os
 import time
 import threading
 import sys
-from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QWaitCondition
+from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QWaitCondition, pyqtSlot
 
 
 class VideoPlayer(QThread):
@@ -331,6 +331,7 @@ class VideoPlayer(QThread):
             self.cap.release()
             self.cap = None
     
+    @pyqtSlot(int)
     def seek(self, position_ms):
         """Seek to a specific position in the video (in milliseconds)"""
         if self.cap is None:
