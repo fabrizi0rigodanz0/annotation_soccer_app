@@ -26,6 +26,7 @@ class VideoPlayer(QThread):
     def __init__(self):
         super().__init__()
         self.mutex = QMutex()
+        self.cap_mutex = QMutex()
         self.condition = QWaitCondition()
         
         # Video properties
@@ -275,27 +276,29 @@ class VideoPlayer(QThread):
         """Read a specific frame from the video file with optimizations"""
         if self.cap is None:
             return False, None
-            
-        # Minimize seeking for sequential reads (big performance improvement)
-        current_pos = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
-        
-        # If this is a sequential read or we need to seek
-        if frame_index == self.last_sequential_read + 1:
-            # Sequential read - no need to seek, just read next frame
-            success, frame = self.cap.read()
-            if success:
-                self.last_sequential_read = frame_index
-        else:
-            # Non-sequential - need to seek
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-            success, frame = self.cap.read()
-            if success:
-                self.last_sequential_read = frame_index
-        
-        # Convert from BGR to RGB for PyQt
-        if success:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
+
+        self.cap_mutex.lock()  # Lock the capture mutex
+        try:
+                # Minimize seeking for sequential reads (big performance improvement)
+                current_pos = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
+                if frame_index == self.last_sequential_read + 1:
+                    # Sequential read - no need to seek, just read next frame
+                    success, frame = self.cap.read()
+                    if success:
+                        self.last_sequential_read = frame_index
+                else:
+                    # Non-sequential - need to seek
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+                    success, frame = self.cap.read()
+                    if success:
+                        self.last_sequential_read = frame_index
+
+                # Convert from BGR to RGB for PyQt
+                if success:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        finally:
+                self.cap_mutex.unlock()  # Always unlock
+
         return success, frame
     
     def play(self):
