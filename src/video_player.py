@@ -74,10 +74,10 @@ class VideoPlayer(QThread):
             self.cap = cv2.VideoCapture(video_path)
             
             # Detect OS: disable hardware acceleration on Windows
-            if sys.platform.startswith("win"):
-                self.hw_acceleration = False
-            else:
-                self.hw_acceleration = True
+            #if sys.platform.startswith("win"):
+                #self.hw_acceleration = False
+            #else:
+            self.hw_acceleration = True
             
             # Apply hardware acceleration and codec settings if allowed
             if self.hw_acceleration:
@@ -89,7 +89,7 @@ class VideoPlayer(QThread):
                 
                 # Only set FOURCC on non‑Windows systems (or if you have confirmed it works on Windows)
                 if not sys.platform.startswith("win"):
-                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('H', '2', '6', '4'))
+                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'P', '4', 'V'))
             
             # Get video properties
             self.fps = self.cap.get(cv2.CAP_PROP_FPS)
