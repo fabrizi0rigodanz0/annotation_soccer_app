@@ -10,6 +10,7 @@ import numpy as np
 import os
 import time
 import threading
+import sys
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QWaitCondition
 
 
@@ -60,62 +61,69 @@ class VideoPlayer(QThread):
         """Load a video file and initialize player properties"""
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Video file not found: {video_path}")
-            
-        # Acquire mutex to ensure thread safety
+        
         self.mutex.lock()
-        
-        # Release any previously loaded video
-        if self.cap is not None:
-            self.cap.release()
+        try:
+            # Release any previously loaded video
+            if self.cap is not None:
+                self.cap.release()
             
-        # Load the new video with hardware acceleration
-        self.video_path = video_path
-        self.cap = cv2.VideoCapture(video_path)
-        
-        # Try to enable hardware acceleration
-        if self.hw_acceleration:
-            # Try different hardware acceleration options based on OpenCV version
-            try:
-                # For OpenCV 4.5.1+
-                self.cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
-            except AttributeError:
-                # Fallback for older OpenCV versions
-                pass
+            # Load the new video
+            self.video_path = video_path
+            self.cap = cv2.VideoCapture(video_path)
+            
+            # Detect OS: disable hardware acceleration on Windows
+            if sys.platform.startswith("win"):
+                self.hw_acceleration = False
+            else:
+                self.hw_acceleration = True
+            
+            # Apply hardware acceleration and codec settings if allowed
+            if self.hw_acceleration:
+                try:
+                    # Try hardware acceleration (for OpenCV 4.5.1+)
+                    self.cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
+                except AttributeError:
+                    pass
                 
-            # Additional codec optimization
-            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('H', '2', '6', '4'))
+                # Only set FOURCC on non‑Windows systems (or if you have confirmed it works on Windows)
+                if not sys.platform.startswith("win"):
+                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('H', '2', '6', '4'))
+            
+            # Get video properties
+            self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+            self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.frame_duration = 1000 / self.fps  # Duration in milliseconds
+            self.total_duration_ms = int((self.total_frames / self.fps) * 1000)
+            
+            # Reset playback state
+            self.current_frame_index = 0
+            self.is_paused = True
+            self.is_stopped = False
+            
+            # Clear frame buffer and timing data
+            self.frame_buffer = []
+            self.last_processing_times = []
+            self.last_sequential_read = -1
+            
+            # Emit the duration signal
+            self.duration_changed.emit(self.total_duration_ms)
+        finally:
+            self.mutex.unlock()
         
-        # Get video properties
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.frame_duration = 1000 / self.fps  # Duration in milliseconds
+        # Adjust buffer size for Windows (lower value for lower‑end machines)
+        if sys.platform.startswith("win"):
+            self.buffer_size = 10  # Lower buffer size on Windows
+        else:
+            self.buffer_size = 20  # Default value on other OS
         
-        # Calculate total duration in milliseconds
-        self.total_duration_ms = int((self.total_frames / self.fps) * 1000)
-        
-        # Reset playback state
-        self.current_frame_index = 0
-        self.is_paused = True
-        self.is_stopped = False
-        
-        # Clear frame buffer and timing data
-        self.frame_buffer = []
-        self.last_processing_times = []
-        self.last_sequential_read = -1
-        
-        # Emit the duration signal
-        self.duration_changed.emit(self.total_duration_ms)
-        
-        # Release the mutex
-        self.mutex.unlock()
-        
-        # Start prefetching frames in the background
         self.prefetch_active = True
         
-        # Start with aggressive prefetching for initial buffer
+        # Start prefetching frames in the background with high priority
         self.prefetch_frames(high_priority=True)
         
         return True
+
         
     def run(self):
         """Main thread loop for video playback with adaptive frame skipping"""
@@ -123,94 +131,83 @@ class VideoPlayer(QThread):
         
         while not self.is_stopped:
             self.mutex.lock()
-            
-            if self.is_paused:
-                # Wait for play signal
-                self.condition.wait(self.mutex)
-                last_frame_time = time.time() * 1000  # Reset timing after pause
+            try:
+                if self.is_paused:
+                    # Wait for play signal
+                    self.condition.wait(self.mutex)
+                    last_frame_time = time.time() * 1000  # Reset timing after pause
+                        
+                if not self.is_stopped and not self.is_paused:
+                    current_time = time.time() * 1000
+                    elapsed = current_time - last_frame_time
+                    target_frame_time = self.frame_duration / self.playback_speed
                     
-            if not self.is_stopped and not self.is_paused:
-                current_time = time.time() * 1000
-                elapsed = current_time - last_frame_time
-                target_frame_time = self.frame_duration / self.playback_speed
-                
-                # Determine if we need to skip frames to catch up
-                skip_frames = False
-                frames_to_skip = 0
-                if self.allow_frame_skipping and elapsed > target_frame_time + self.skip_threshold_ms:
-                    skip_frames = True
-                    frames_behind = int((elapsed - target_frame_time) / target_frame_time)
-                    # Don't skip more than 5 frames at once
-                    frames_to_skip = min(frames_behind, 5)
-                
-                # Check if we need to read a new frame
-                if self.frame_buffer and len(self.frame_buffer) > 0:
-                    # Get frame from buffer
-                    frame, frame_index = self.frame_buffer.pop(0)
-                    self.current_frame_index = frame_index
+                    # Determine if we need to skip frames to catch up
+                    skip_frames = False
+                    frames_to_skip = 0
+                    if self.allow_frame_skipping and elapsed > target_frame_time + self.skip_threshold_ms:
+                        skip_frames = True
+                        frames_behind = int((elapsed - target_frame_time) / target_frame_time)
+                        # Don't skip more than 5 frames at once
+                        frames_to_skip = min(frames_behind, 5)
                     
-                    # Skip frames if needed
-                    if skip_frames and len(self.frame_buffer) >= frames_to_skip:
-                        for _ in range(frames_to_skip):
-                            try:
-                                frame, frame_index = self.frame_buffer.pop(0)
-                                self.current_frame_index = frame_index
-                            except IndexError:
-                                break
-                    
-                    # Calculate current position in milliseconds
-                    position_ms = int(self.current_frame_index * self.frame_duration)
-                    
-                    # Emit the frame
-                    self.frame_ready.emit(frame, position_ms)
-                    
-                    # Check if we've reached the end
-                    if self.current_frame_index >= self.total_frames - 1:
-                        self.playback_finished.emit()
-                        self.is_paused = True
-                else:
-                    # If buffer is empty, read directly (less optimal)
-                    success, frame = self.read_frame(self.current_frame_index)
-                    if success:
+                    # Check if we need to read a new frame
+                    if self.frame_buffer and len(self.frame_buffer) > 0:
+                        # Get frame from buffer
+                        frame, frame_index = self.frame_buffer.pop(0)
+                        self.current_frame_index = frame_index
+                        
+                        # Skip frames if needed
+                        if skip_frames and len(self.frame_buffer) >= frames_to_skip:
+                            for _ in range(frames_to_skip):
+                                try:
+                                    frame, frame_index = self.frame_buffer.pop(0)
+                                    self.current_frame_index = frame_index
+                                except IndexError:
+                                    break
+                        
                         # Calculate current position in milliseconds
                         position_ms = int(self.current_frame_index * self.frame_duration)
                         
                         # Emit the frame
                         self.frame_ready.emit(frame, position_ms)
                         
-                        # Move to next frame
-                        self.current_frame_index += 1
-                        
                         # Check if we've reached the end
                         if self.current_frame_index >= self.total_frames - 1:
                             self.playback_finished.emit()
                             self.is_paused = True
                     else:
-                        # Error reading frame or end of video
-                        self.playback_finished.emit()
-                        self.is_paused = True
-                
-                # Update timing
-                last_frame_time = time.time() * 1000
+                        # If buffer is empty, read directly (less optimal)
+                        success, frame = self.read_frame(self.current_frame_index)
+                        if success:
+                            position_ms = int(self.current_frame_index * self.frame_duration)
+                            self.frame_ready.emit(frame, position_ms)
+                            self.current_frame_index += 1
+                            if self.current_frame_index >= self.total_frames - 1:
+                                self.playback_finished.emit()
+                                self.is_paused = True
+                        else:
+                            self.playback_finished.emit()
+                            self.is_paused = True
                     
-            self.mutex.unlock()
+                    last_frame_time = time.time() * 1000
+            finally:
+                self.mutex.unlock()
             
-            # Adjusted sleep time based on playback speed
             if not self.is_paused and not self.is_stopped:
-                # Dynamically adjust sleep time to maintain timing
                 current_time = time.time() * 1000
                 elapsed = current_time - last_frame_time
                 remaining = max(1, int((self.frame_duration / self.playback_speed) - elapsed))
                 self.msleep(remaining)
                 
-                # Refill buffer if it's getting low
                 if len(self.frame_buffer) < self.buffer_size // 2 and self.prefetch_active:
                     self.prefetch_frames()
+
     
     def prefetch_frames(self, high_priority=False):
         """
         Prefetch frames into buffer for smoother playback
-        
+            
         Args:
             high_priority (bool): If True, fill buffer more aggressively
         """
@@ -231,19 +228,21 @@ class VideoPlayer(QThread):
                     next_frame_index = self.current_frame_index + len(self.frame_buffer)
                     if next_frame_index >= self.total_frames:
                         break
-                        
+                    
                     success, frame = self.read_frame(next_frame_index)
                     if success:
                         self.mutex.lock()
-                        self.frame_buffer.append((frame, next_frame_index))
-                        self.mutex.unlock()
+                        try:
+                            self.frame_buffer.append((frame, next_frame_index))
+                        finally:
+                            self.mutex.unlock()
                     else:
                         break
             
-            # Start a one-off prefetch thread for immediate needs
-            threading.Thread(target=prefetch_task).start()
+            # Mark the thread as daemon so it doesn't block application exit
+            threading.Thread(target=prefetch_task, daemon=True).start()
             return
-                
+        
         # Fill buffer up to buffer_size
         start_time = time.time()
         frames_added = 0
@@ -267,7 +266,7 @@ class VideoPlayer(QThread):
                 frames_added += 1
             else:
                 break
-                
+            
             # Don't monopolize the thread for too long
             if time.time() - start_time > 0.1:  # Max 100ms for prefetching
                 break
