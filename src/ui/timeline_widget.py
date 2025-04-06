@@ -161,15 +161,16 @@ class TimelineWidget(QWidget):
                         item.setBackground(QColor(255, 221, 217))  # Light red for away
     
     def on_position_clicked(self, position_ms):
-        """Handle click on the timeline"""
-        # Update position
+        # Update position and seek via a queued connection
         self.current_position_ms = position_ms
-        
-        # Emit signal to notify other components
         self.position_changed.emit(position_ms)
-        
-        # Seek the video player
-        self.video_player.seek(position_ms)
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        QMetaObject.invokeMethod(
+            self.video_player, 
+            "seek", 
+            Qt.QueuedConnection, 
+            Q_ARG(int, position_ms)
+        )
     
     def on_annotation_double_clicked(self, row, column):
         """Handle double click on an annotation in the table"""
