@@ -176,9 +176,13 @@ class TimelineWidget(QWidget):
         """Handle double click on an annotation in the table"""
         # Get the annotation position
         position_ms = int(self.annotation_manager.get_annotations()[row]["position"])
-        
-        # Seek to that position
-        self.video_player.seek(position_ms)
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        QMetaObject.invokeMethod(
+            self.video_player,
+            "seek",
+            Qt.QueuedConnection,
+         Q_ARG(int, position_ms)
+        )
         self.position_changed.emit(position_ms)
     
     def show_context_menu(self, position):
